@@ -62,6 +62,7 @@ USE_CYTHON = bool(int(os.getenv('SETUPHOOKS_USE_CYTHON', '1') or '0'))
 MIN_VERSION_CYTHON = '0.13'
 
 import sys
+from pathlib import Path
 
 # we disable setuptools sdist see numpy github issue #7127
 if 'sdist' not in sys.argv:
@@ -320,8 +321,7 @@ class BuildSrcCommand(build_src):
         self.run_command('build_pre')
         self.run_command('build_cy')
         if self._has_fortran():
-            with open(os.path.join(root, '.f2py_f2cmap'), 'w') as f:
-                f.write(repr(F2PY_TABLE))
+            Path.cwd().joinpath('.f2py_f2cmap').write_text(repr(F2PY_TABLE))
         build_src.run(self)
 
     def pyrex_sources(self, sources, extension):
