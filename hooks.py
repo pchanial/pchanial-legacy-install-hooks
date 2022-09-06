@@ -120,18 +120,12 @@ if _id is not None:
 
 class BuildClibCommand(build_clib):
     def build_libraries(self, libraries):
-        if parse_version(numpy.__version__) < parse_version('1.7'):
-            fcompiler = self.fcompiler
-        else:
-            fcompiler = self._f_compiler
+        fcompiler = self._f_compiler
+        if fcompiler is None:
+            raise ValueError('build_clib._f_compiler is None.')
+
         if isinstance(fcompiler,
                       numpy.distutils.fcompiler.gnu.Gnu95FCompiler):
-            old_value = numpy.distutils.log.set_verbosity(-2)
-            exe = find_executable('gcc-ar')
-            if exe is None:
-                exe = find_executable('ar')
-            numpy.distutils.log.set_verbosity(old_value)
-            self.compiler.archiver[0] = exe
             flags = F77_COMPILE_ARGS_GFORTRAN + F77_COMPILE_OPT_GFORTRAN
             if self.debug:
                 flags += F77_COMPILE_DEBUG_GFORTRAN
@@ -147,9 +141,7 @@ class BuildClibCommand(build_clib):
             fcompiler.libraries += [LIBRARY_OPENMP_GFORTRAN]
         elif isinstance(fcompiler,
                         numpy.distutils.fcompiler.intel.IntelFCompiler):
-            old_value = numpy.distutils.log.set_verbosity(-2)
             self.compiler.archiver[0] = find_executable('xiar')
-            numpy.distutils.log.set_verbosity(old_value)
             flags = F77_COMPILE_ARGS_IFORT + F77_COMPILE_OPT_IFORT
             if self.debug:
                 flags += F77_COMPILE_DEBUG_IFORT
