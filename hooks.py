@@ -47,8 +47,14 @@ F2PY_TABLE = {'integer': {'int8': 'char',
               'complex': {'real32': 'complex_float',
                           'real64': 'complex_double'}}
 FCOMPILERS_DEFAULT = 'ifort', 'gfortran'
-LIBRARY_OPENMP_GFORTRAN = 'gomp'
-LIBRARY_OPENMP_IFORT = 'iomp5'
+FLAGS_OPENMP = {
+    'ifort': ['-qopenmp'],
+    'gfortran': ['-openmp'],
+}
+LIBRARY_OPENMP = {
+    'ifort': 'iomp5',
+    'gfortran': 'gomp',
+}
 USE_CYTHON = bool(int(os.getenv('SETUPHOOKS_USE_CYTHON', '1') or '0'))
 MIN_VERSION_CYTHON = '0.13'
 
@@ -92,15 +98,15 @@ class BuildClibCommand(build_clib):
             if self.debug:
                 flags += F77_COMPILE_DEBUG_GFORTRAN
             if F77_OPENMP:
-                flags += ['-openmp']
+                flags += FLAGS_OPENMP['gfortran']
             fcompiler.executables['compiler_f77'] += flags
             flags = F90_COMPILE_ARGS_GFORTRAN + F90_COMPILE_OPT_GFORTRAN
             if self.debug:
                 flags += F90_COMPILE_DEBUG_GFORTRAN
             if F90_OPENMP:
-                flags += ['-openmp']
+                flags += FLAGS_OPENMP['gfortran']
             fcompiler.executables['compiler_f90'] += flags
-            fcompiler.libraries += [LIBRARY_OPENMP_GFORTRAN]
+            fcompiler.libraries += [LIBRARY_OPENMP['gfortran']]
 
         elif isinstance(fcompiler, numpy.distutils.fcompiler.intel.IntelFCompiler):
             self.compiler.archiver[0] = find_executable('xiar')
@@ -108,15 +114,15 @@ class BuildClibCommand(build_clib):
             if self.debug:
                 flags += F77_COMPILE_DEBUG_IFORT
             if F77_OPENMP:
-                flags += ['-qopenmp']
+                flags += FLAGS_OPENMP['ifort']
             fcompiler.executables['compiler_f77'] += flags
             flags = F90_COMPILE_ARGS_IFORT + F90_COMPILE_OPT_IFORT
             if self.debug:
                 flags += F90_COMPILE_DEBUG_IFORT
             if F90_OPENMP:
-                flags += ['-qopenmp']
+                flags += FLAGS_OPENMP['ifort']
             fcompiler.executables['compiler_f90'] += flags
-            fcompiler.libraries += [LIBRARY_OPENMP_IFORT]
+            fcompiler.libraries += [LIBRARY_OPENMP['ifort']]
 
         elif fcompiler is not None:
             raise RuntimeError("Unhandled compiler: '{}'.".format(fcompiler))
@@ -219,34 +225,33 @@ class BuildExtCommand(build_ext):
                 if self.debug:
                     flags += F77_COMPILE_DEBUG_GFORTRAN
                 if F77_OPENMP:
-                    flags += ['-openmp']
+                    flags += FLAGS_OPENMP['gfortran']
                 fc.executables['compiler_f77'] += flags
                 flags = F90_COMPILE_ARGS_GFORTRAN + F90_COMPILE_OPT_GFORTRAN
                 if self.debug:
                     flags += F90_COMPILE_DEBUG_GFORTRAN
                 if F90_OPENMP:
-                    flags += ['-openmp']
+                    flags += FLAGS_OPENMP['gfortran']
                 fc.executables['compiler_f90'] += flags
-                fc.libraries += [LIBRARY_OPENMP_GFORTRAN]
+                fc.libraries += [LIBRARY_OPENMP['gfortran']]
 
             elif isinstance(fc, numpy.distutils.fcompiler.intel.IntelFCompiler):
                 flags = F77_COMPILE_ARGS_IFORT + F77_COMPILE_OPT_IFORT
                 if self.debug:
                     flags += F77_COMPILE_DEBUG_IFORT
                 if F77_OPENMP:
-                    flags += ['-qopenmp']
+                    flags += FLAGS_OPENMP['ifort']
                 fc.executables['compiler_f77'] += flags
                 flags = F90_COMPILE_ARGS_IFORT + F90_COMPILE_OPT_IFORT
                 if self.debug:
                     flags += F90_COMPILE_DEBUG_IFORT
                 if F90_OPENMP:
-                    flags += ['-qopenmp']
+                    flags += FLAGS_OPENMP['ifort']
                 fc.executables['compiler_f90'] += flags
-                fc.libraries += [LIBRARY_OPENMP_IFORT]
+                fc.libraries += [LIBRARY_OPENMP['ifort']]
 
             elif fc is not None:
-                raise RuntimeError(
-                    "Unhandled compiler: '{}'.".format(fcompiler))
+                raise RuntimeError(f"Unhandled compiler: '{fc}'.")
 
         try:
             super().build_extensions()
@@ -255,7 +260,11 @@ class BuildExtCommand(build_ext):
             raise
         finally:
             print(f'_f77_compiler: {self._f77_compiler}')
+            if self._f77_compiler:
+                print(f'_f77_compiler: {self._f77_compiler.executables}')
             print(f'_f90_compiler: {self._f90_compiler}')
+            if self._f90_compiler:
+                print(f'_f90_compiler: {self._f90_compiler.executables}')
 
 
 class BuildSrcCommand(build_src):
