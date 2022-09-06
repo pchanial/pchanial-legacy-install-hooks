@@ -1,36 +1,29 @@
-"""
-The version number is obtained from git tags, branch and commit identifier.
-It has been designed for the following workflow:
-
-- git init
-- create setup.py commit
-- more commit
-- set version 0.1 in setup.py -> 0.1.dev03
-- modify, commit              -> 0.1.dev04
-- git checkout -b v0.1        -> 0.1.dev04
-- modify, commit              -> 0.1.pre01
-- modify, commit              -> 0.1.pre02
-- git tag 0.1                 -> 0.1
-- modify... and commit        -> 0.1.post01
-- modify... and commit        -> 0.1.post02
-- git tag 0.1.1               -> 0.1.1
-- modify... and commit        -> 0.1.1.post01
-- git checkout master         -> 0.1.dev04
-- set version=0.2 in setup.py -> 0.2.dev01
-- modify, commit              -> 0.2.dev02
-- git tag 0.2                 -> 0.2
-- set version=0.3 in setup.py -> 0.3.dev01
-
-
-When working on the master branch, the dev number is the number of commits
-since the last release branch (by default of name "v[0-9.]+", but it is
-configurable) or the last tag.
-
+"""Hooks to ease building of fortran or cython extensions.
 """
 import os
+import sys
+from pathlib import Path
+
+# we disable setuptools sdist see numpy github issue #7127
+if 'sdist' not in sys.argv:
+    import setuptools
+
+import numpy
+import re
+from numpy.distutils.command.build_clib import build_clib
+from numpy.distutils.command.build_ext import build_ext
+from numpy.distutils.command.build_src import build_src
+from numpy.distutils.command.sdist import sdist
+from distutils.cmd import Command
+from numpy.distutils.exec_command import find_executable
+from numpy.distutils.fcompiler import new_fcompiler
+from numpy.distutils.fcompiler.gnu import Gnu95FCompiler
+from numpy.distutils.fcompiler.intel import IntelEM64TFCompiler
+from numpy.distutils.misc_util import f90_ext_match, has_f_sources
+from pkg_resources import parse_version
+from subprocess import call
 
 # These variables can be changed by the hooks importer
-ABBREV = 5
 F77_OPENMP = True
 F90_OPENMP = True
 F77_COMPILE_ARGS_GFORTRAN = []
@@ -54,44 +47,12 @@ F2PY_TABLE = {'integer': {'int8': 'char',
               'complex': {'real32': 'complex_float',
                           'real64': 'complex_double'}}
 FCOMPILERS_DEFAULT = 'ifort', 'gfortran'
-FILE_PREPROCESS = 'preprocess.py'
 LIBRARY_OPENMP_GFORTRAN = 'gomp'
 LIBRARY_OPENMP_IFORT = 'iomp5'
-REGEX_RELEASE = '^v(?P<name>[0-9.]+)$'
 USE_CYTHON = bool(int(os.getenv('SETUPHOOKS_USE_CYTHON', '1') or '0'))
 MIN_VERSION_CYTHON = '0.13'
 
-import sys
-from pathlib import Path
-
-# we disable setuptools sdist see numpy github issue #7127
-if 'sdist' not in sys.argv:
-    import setuptools
-
-import numpy
-import re
-import shutil
-from distutils.command.clean import clean
-from numpy.distutils.command.build_clib import build_clib
-from numpy.distutils.command.build_ext import build_ext
-from numpy.distutils.command.build_src import build_src
-from numpy.distutils.command.sdist import sdist
-from distutils.cmd import Command
-from numpy.distutils.exec_command import find_executable
-from numpy.distutils.fcompiler import new_fcompiler
-from numpy.distutils.fcompiler.gnu import Gnu95FCompiler
-from numpy.distutils.fcompiler.intel import IntelEM64TFCompiler
-from numpy.distutils.misc_util import f90_ext_match, has_f_sources
-from pkg_resources import parse_version
-from subprocess import call, Popen, PIPE
-from warnings import filterwarnings
-
 numpy.distutils.log.set_verbosity(numpy.distutils.log.DEBUG)
-
-try:
-    root = os.path.dirname(os.path.abspath(__file__))
-except NameError:
-    root = os.path.dirname(os.path.abspath(sys.argv[0]))
 
 # monkey patch to allow pure and elemental routines in preprocessed
 # Fortran libraries
@@ -168,7 +129,7 @@ class BuildClibCommand(build_clib):
         finally:
             print(f'_f_compiler: {fcompiler.executables}')
             print(f'archiver: {self.compiler.archiver}')
- 
+
 
 class BuildCyCommand(Command):
     description = 'cythonize files'
@@ -295,33 +256,6 @@ class BuildExtCommand(build_ext):
         finally:
             print(f'_f77_compiler: {self._f77_compiler}')
             print(f'_f90_compiler: {self._f90_compiler}')
- 
-
-class BuildPreCommand(Command):
-    description = 'run the package preprocessing'
-    user_options = []
-
-    def run(self):
-        self._write_version()
-        if os.path.exists(FILE_PREPROCESS):
-            import imp
-            imp.load_source('preprocess', FILE_PREPROCESS)
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def _write_version(self):
-        name = self.distribution.get_name()
-        version = self.distribution.get_version()
-        try:
-            init = open(os.path.join(root, name, '__init__.py.in')).readlines()
-        except IOError:
-            return
-        init += ['\n', "__version__ = '{}'\n".format(version)]
-        open(os.path.join(root, name, '__init__.py'), 'w').writelines(init)
 
 
 class BuildSrcCommand(build_src):
@@ -352,41 +286,6 @@ class SDistCommand(sdist):
     def get_file_list(self):
         super().get_file_list()
         self.filelist.append('hooks.py')
-
-
-class CleanCommand(clean):
-    def run(self):
-        super().run()
-        if is_git_tree():
-            print(run_git('clean -fdX' + ('n' if self.dry_run else '')))
-            return
-
-        dirs = 'build', self.distribution.get_name() + '.egg-info'
-        for d in dirs:
-            f = os.path.join(root, d)
-            if os.path.exists(f):
-                self.__delete(f, dir=True)
-
-        extensions = '.o', '.pyc', 'pyd', 'pyo', '.so'
-        for root_, dirs, files in os.walk(root):
-            for f in files:
-                if os.path.splitext(f)[-1] in extensions:
-                    self.__delete(os.path.join(root_, f))
-            for d in dirs:
-                if d == '__pycache__':
-                    self.__delete(os.path.join(root_, d), dir=True)
-
-    def __delete(self, file_, dir=False):
-        msg = 'would remove' if self.dry_run else 'removing'
-        try:
-            if not self.dry_run:
-                if dir:
-                    shutil.rmtree(file_)
-                else:
-                    os.unlink(file_)
-        except OSError:
-            msg = 'problem removing'
-        print(msg + ' {!r}'.format(file_))
 
 
 class CoverageCommand(Command):
@@ -432,177 +331,7 @@ cmdclass = {
     'build_clib': BuildClibCommand,
     'build_cy': BuildCyCommand,
     'build_ext': BuildExtCommand,
-    'build_pre': BuildPreCommand,
     'build_src': BuildSrcCommand,
-    'clean': CleanCommand,
     'coverage': CoverageCommand,
     'sdist': SDistCommand,
     'test': TestCommand}
-
-
-def get_version(name, default):
-    return _get_version_git(default) or _get_version_init_file(name) or default
-
-
-def run_git(cmd, cwd=root):
-    git = 'git'
-    if sys.platform == 'win32':
-        git = 'git.cmd'
-    cmd = git + ' ' + cmd
-    return run(cmd, cwd=cwd)
-
-
-def run(cmd, cwd=root):
-    process = Popen(cmd.split(), cwd=cwd, stdout=PIPE, stderr=PIPE)
-    stdout, stderr = process.communicate()
-    if process.returncode != 0:
-        stderr = stderr.decode('utf-8')
-        if stderr != '':
-            stderr = '\n' + stderr
-        raise RuntimeError(
-            u'Command failed (error {0}): {1}{2}'.format(
-                process.returncode, cmd, stderr))
-    return stdout.strip().decode('utf-8')
-
-
-def is_git_tree():
-    return os.path.exists(os.path.join(root, '.git'))
-
-
-def _get_version_git(default):
-    INF = 2147483647
-
-    def get_branches():
-        return run_git('for-each-ref --sort=-committerdate --format=%(refname)'
-                       ' refs/heads refs/remotes/origin').splitlines()
-
-    def get_branch_name():
-        branch = run_git('rev-parse --abbrev-ref HEAD')
-        if branch != 'HEAD':
-            return branch
-        branch = run_git('branch --no-color --contains HEAD').splitlines()
-        return branch[min(1, len(branch)-1)].strip()
-
-    def get_description():
-        branch = get_branch_name()
-        try:
-            description = run_git(
-                'describe --abbrev={0} --tags'.format(ABBREV))
-        except RuntimeError:
-            description = run_git(
-                'describe --abbrev={0} --always'.format(ABBREV))
-            regex = r"""^
-            (?P<commit>.*?)
-            (?P<dirty>(-dirty)?)
-            $"""
-            m = re.match(regex, description, re.VERBOSE)
-            commit, dirty = (m.group(_) for _ in 'commit,dirty'.split(','))
-            return branch, '', INF, commit, dirty
-
-        regex = r"""^
-        (?P<tag>.*?)
-        (?:-
-            (?P<rev>\d+)-g
-            (?P<commit>[0-9a-f]{5,40})
-        )?
-        (?P<dirty>(-dirty)?)
-        $"""
-        m = re.match(regex, description, re.VERBOSE)
-        tag, rev, commit, dirty = (m.group(_)
-                                   for _ in 'tag,rev,commit,dirty'.split(','))
-        if rev is None:
-            rev = 0
-            commit = ''
-        else:
-            rev = int(rev)
-        return branch, tag, rev, commit, dirty
-
-    def get_rev_since_branch(branch):
-        try:
-            # get best common ancestor
-            common = run_git('merge-base HEAD ' + branch)
-        except RuntimeError:
-            return INF  # no common ancestor, the branch is dangling
-        # git 1.8: return int(run_git('rev-list --count HEAD ^' + common))
-        return len(run_git('rev-list HEAD ^' + common).split('\n'))
-
-    def get_rev_since_any_branch():
-        if REGEX_RELEASE.startswith('^'):
-            regex = REGEX_RELEASE[1:]
-        else:
-            regex = '.*' + REGEX_RELEASE
-        regex = '^refs/(heads|remotes/origin)/' + regex
-
-        branches = get_branches()
-        for branch in branches:
-            # filter branches according to BRANCH_REGEX
-            if not re.match(regex, branch):
-                continue
-            rev = get_rev_since_branch(branch)
-            if rev > 0:
-                return rev
-        # no branch has been created from an ancestor
-        return INF
-
-    if not is_git_tree():
-        return ''
-
-    branch, tag, rev_tag, commit, dirty = get_description()
-
-    # check if the commit is tagged
-    if rev_tag == 0:
-        return tag + dirty
-
-    # if the current branch is master, look up the closest tag or the closest
-    # release branch rev to get the dev number otherwise, look up the closest
-    # tag or the closest master rev.
-    suffix = 'dev'
-    if branch == 'master':
-        rev_branch = get_rev_since_any_branch()
-        name = default
-        is_branch_release = False
-    else:
-        rev_branch = get_rev_since_branch('master')
-        name = branch
-        m = re.match(REGEX_RELEASE, branch)
-        is_branch_release = m is not None
-        if is_branch_release:
-            try:
-                name = m.group('name')
-            except IndexError:
-                pass
-        elif rev_tag == rev_branch:
-            tag = branch
-
-    if rev_branch == rev_tag == INF:
-        # no branch and no tag from ancestors, counting from root
-        rev = len(run_git('rev-list HEAD').split('\n'))
-        if branch != 'master':
-            suffix = 'rev'
-    elif rev_tag <= rev_branch:
-        rev = rev_tag
-        if branch != 'master':
-            name = tag
-        if is_branch_release:
-            suffix = 'post'
-    else:
-        rev = rev_branch
-        if is_branch_release:
-            suffix = 'pre'
-    if name != '':
-        name += '.'
-    return '{0}{1}{2}{3}'.format(name, suffix, rev, dirty)
-
-
-def _get_version_init_file(name):
-    try:
-        f = open(os.path.join(name, '__init__.py')).read()
-    except IOError:
-        return ''
-    m = re.search(r"__version__ = '(.*)'", f)
-    if m is None:
-        return ''
-    return m.groups()[0]
-
-
-filterwarnings('ignore', "Unknown distribution option: 'install_requires'")
