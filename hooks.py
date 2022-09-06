@@ -297,50 +297,10 @@ class SDistCommand(sdist):
         self.filelist.append('hooks.py')
 
 
-class CoverageCommand(Command):
-    description = "run the package coverage"
-    user_options = [('file=', 'f', 'restrict coverage to a specific file'),
-                    ('erase', None,
-                     'erase previously collected coverage before run'),
-                    ('html-dir=', None,
-                     'Produce HTML coverage information in dir')]
-
-    def run(self):
-        cmd = [sys.executable, '-mnose', '--with-coverage', '--cover-html',
-               '--cover-package=' + self.distribution.get_name(),
-               '--cover-html-dir=' + self.html_dir]
-        if self.erase:
-            cmd.append('--cover-erase')
-        call(cmd + [self.file])
-
-    def initialize_options(self):
-        self.file = 'test'
-        self.erase = 0
-        self.html_dir = 'htmlcov'
-
-    def finalize_options(self):
-        pass
-
-
-class TestCommand(Command):
-    description = "run the test suite"
-    user_options = [('file=', 'f', 'restrict test to a specific file')]
-
-    def run(self):
-        call([sys.executable, '-mnose', self.file])
-
-    def initialize_options(self):
-        self.file = 'test'
-
-    def finalize_options(self):
-        pass
-
-
 cmdclass = {
     'build_clib': BuildClibCommand,
     'build_cy': BuildCyCommand,
     'build_ext': BuildExtCommand,
     'build_src': BuildSrcCommand,
-    'coverage': CoverageCommand,
     'sdist': SDistCommand,
-    'test': TestCommand}
+}
