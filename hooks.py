@@ -34,11 +34,11 @@ ABBREV = 5
 F77_OPENMP = True
 F90_OPENMP = True
 F77_COMPILE_ARGS_GFORTRAN = []
-F77_COMPILE_DEBUG_GFORTRAN = ['-fcheck=all -Og']
+F77_COMPILE_DEBUG_GFORTRAN = ['-fcheck=all', '-Og']
 F77_COMPILE_OPT_GFORTRAN = ['-Ofast','-march=native']
 F90_COMPILE_ARGS_GFORTRAN = ['-cpp']
-F90_COMPILE_DEBUG_GFORTRAN = ['-fcheck=all','-Og']
-F90_COMPILE_OPT_GFORTRAN = ['-Ofast','-march=native']
+F90_COMPILE_DEBUG_GFORTRAN = ['-fcheck=all', '-Og']
+F90_COMPILE_OPT_GFORTRAN = ['-Ofast', '-march=native']
 F77_COMPILE_ARGS_IFORT = []
 F77_COMPILE_DEBUG_IFORT = ['-check all']
 F77_COMPILE_OPT_IFORT = ['-fast']
@@ -86,6 +86,8 @@ from pkg_resources import parse_version
 from subprocess import call, Popen, PIPE
 from warnings import filterwarnings
 
+numpy.distutils.log.set_verbosity(numpy.distutils.log.DEBUG)
+
 try:
     root = os.path.dirname(os.path.abspath(__file__))
 except NameError:
@@ -124,8 +126,7 @@ class BuildClibCommand(build_clib):
         if fcompiler is None:
             raise ValueError('build_clib._f_compiler is None.')
 
-        if isinstance(fcompiler,
-                      numpy.distutils.fcompiler.gnu.Gnu95FCompiler):
+        if isinstance(fcompiler, numpy.distutils.fcompiler.gnu.Gnu95FCompiler):
             flags = F77_COMPILE_ARGS_GFORTRAN + F77_COMPILE_OPT_GFORTRAN
             if self.debug:
                 flags += F77_COMPILE_DEBUG_GFORTRAN
@@ -139,8 +140,8 @@ class BuildClibCommand(build_clib):
                 flags += ['-openmp']
             fcompiler.executables['compiler_f90'] += flags
             fcompiler.libraries += [LIBRARY_OPENMP_GFORTRAN]
-        elif isinstance(fcompiler,
-                        numpy.distutils.fcompiler.intel.IntelFCompiler):
+
+        elif isinstance(fcompiler, numpy.distutils.fcompiler.intel.IntelFCompiler):
             self.compiler.archiver[0] = find_executable('xiar')
             flags = F77_COMPILE_ARGS_IFORT + F77_COMPILE_OPT_IFORT
             if self.debug:
@@ -155,10 +156,19 @@ class BuildClibCommand(build_clib):
                 flags += ['-qopenmp']
             fcompiler.executables['compiler_f90'] += flags
             fcompiler.libraries += [LIBRARY_OPENMP_IFORT]
+
         elif fcompiler is not None:
             raise RuntimeError("Unhandled compiler: '{}'.".format(fcompiler))
-        build_clib.build_libraries(self, libraries)
 
+        try:
+            super().build_libraries(libraries)
+        except Exception as exc:
+            print(f'Build library: an exception occurred: {exc}')
+            raise
+        finally:
+            print(f'_f_compiler: {fcompiler.executables}')
+            print(f'archiver: {self.compiler.archiver}')
+ 
 
 class BuildCyCommand(Command):
     description = 'cythonize files'
@@ -223,6 +233,7 @@ class BuildExtCommand(build_ext):
             any(any(f90_ext_match(s) for s in _.sources)
                 for _ in self.extensions)
         if need_f90_compiler:
+            print('WARNING: mixed f90/f77 files HACK still required.')
             self._f90_compiler = new_fcompiler(compiler=self.fcompiler,
                                                verbose=self.verbose,
                                                dry_run=self.dry_run,
@@ -241,8 +252,8 @@ class BuildExtCommand(build_ext):
                 self.warn('f90_compiler=%s is not available.' % ctype)
 
         for fc in self._f77_compiler, self._f90_compiler:
-            if isinstance(fc,
-                          numpy.distutils.fcompiler.gnu.Gnu95FCompiler):
+
+            if isinstance(fc, numpy.distutils.fcompiler.gnu.Gnu95FCompiler):
                 flags = F77_COMPILE_ARGS_GFORTRAN + F77_COMPILE_OPT_GFORTRAN
                 if self.debug:
                     flags += F77_COMPILE_DEBUG_GFORTRAN
@@ -256,8 +267,8 @@ class BuildExtCommand(build_ext):
                     flags += ['-openmp']
                 fc.executables['compiler_f90'] += flags
                 fc.libraries += [LIBRARY_OPENMP_GFORTRAN]
-            elif isinstance(fc,
-                            numpy.distutils.fcompiler.intel.IntelFCompiler):
+
+            elif isinstance(fc, numpy.distutils.fcompiler.intel.IntelFCompiler):
                 flags = F77_COMPILE_ARGS_IFORT + F77_COMPILE_OPT_IFORT
                 if self.debug:
                     flags += F77_COMPILE_DEBUG_IFORT
@@ -271,11 +282,20 @@ class BuildExtCommand(build_ext):
                     flags += ['-qopenmp']
                 fc.executables['compiler_f90'] += flags
                 fc.libraries += [LIBRARY_OPENMP_IFORT]
+
             elif fc is not None:
                 raise RuntimeError(
                     "Unhandled compiler: '{}'.".format(fcompiler))
-        build_ext.build_extensions(self)
 
+        try:
+            super().build_extensions()
+        except Exception as exc:
+            print(f'Build extensions: an exception occurred: {exc}')
+            raise
+        finally:
+            print(f'_f77_compiler: {self._f77_compiler}')
+            print(f'_f90_compiler: {self._f90_compiler}')
+ 
 
 class BuildPreCommand(Command):
     description = 'run the package preprocessing'
@@ -306,7 +326,7 @@ class BuildPreCommand(Command):
 
 class BuildSrcCommand(build_src):
     def initialize_options(self):
-        build_src.initialize_options(self)
+        super().initialize_options()
         self.f2py_opts = '--quiet'
 
     def run(self):
@@ -314,7 +334,7 @@ class BuildSrcCommand(build_src):
         self.run_command('build_cy')
         if self._has_fortran():
             Path.cwd().joinpath('.f2py_f2cmap').write_text(repr(F2PY_TABLE))
-        build_src.run(self)
+        super().run()
 
     def pyrex_sources(self, sources, extension):
         return sources
@@ -327,16 +347,16 @@ class SDistCommand(sdist):
     def run(self):
         self.run_command('build_pre')
         self.run_command('build_cy')
-        sdist.run(self)
+        super().run()
 
     def get_file_list(self):
-        sdist.get_file_list(self)
+        super().get_file_list()
         self.filelist.append('hooks.py')
 
 
 class CleanCommand(clean):
     def run(self):
-        clean.run(self)
+        super().run()
         if is_git_tree():
             print(run_git('clean -fdX' + ('n' if self.dry_run else '')))
             return
