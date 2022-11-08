@@ -211,8 +211,9 @@ class BuildExtCommand(build_ext):
                 self.warn('f90_compiler=%s is not available.' % ctype)
 
         for fc in self._f77_compiler, self._f90_compiler:
-            fcompiler_fixup(fc, 'F77', self.debug)
-            fcompiler_fixup(fc, 'F90', self.debug)
+            if fc is not None:
+                fcompiler_fixup(fc, 'F77', self.debug)
+                fcompiler_fixup(fc, 'F90', self.debug)
 
         try:
             super().build_extensions()
