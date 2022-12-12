@@ -248,6 +248,14 @@ def fcompiler_fixup(fc: FCompiler, fc_type: Literal['F77', 'F90'], debug: bool):
         FFLAGS +
         eval(f'{fc_type}FLAGS')
     )
+
+    # default values are not copied over for Numpy < 1.19
+    if (
+        fcompiler_name == 'gfortran'
+        and tuple(int(_) for _ in numpy.__version__.split('.')) < (1, 19)
+    ):
+        flags = ['-Wall', '-g', '-fno-second-underscore', '-fPIC'] + flags
+
     fc.executables[f'compiler_{fc_type.lower()}'] += flags
     if openmp:
         fc.libraries += [LIBRARY_OPENMP[fcompiler_name]]
