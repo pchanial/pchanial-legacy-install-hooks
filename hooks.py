@@ -3,7 +3,10 @@
 import os
 import sys
 from pathlib import Path
-from typing import Literal
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 # we disable setuptools sdist see numpy github issue #7127
 if 'sdist' not in sys.argv:
